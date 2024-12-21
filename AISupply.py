@@ -39,9 +39,10 @@ class SupplyChainDataHandler:
 if __name__ == "__main__":
     API_URL = "https://newsapi.org/v2/everything?q=AI&apiKey=ba1bd98460234da9a7667d975d1e4fa8"#you can modify the api if needed
 
-    # Initialize the handler with the API URL and optional dataset file path
+    
     data_handler = SupplyChainDataHandler(api_url=API_URL)
 
-    # Download the dataset
+    
     data_handler.download_dataset()
+    #for every api it downloads the data set
 
