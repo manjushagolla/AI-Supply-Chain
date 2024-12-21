@@ -12,7 +12,7 @@ This project is dedicated to creating a smart, AI-driven solution that revolutio
 
 3.**Inventory Optimization**: Implement dynamic inventory strategies to cut costs and maximize operational efficiency.
 
-4.**Real-Time Alerts**: Get instant notifications via Slack/Email, enabling swift and informed decisions.
+4.**Real-Time Alerts**: Get instant notifications via Email, enabling swift and informed decisions.
 
 **Preferred LLMs**
 
