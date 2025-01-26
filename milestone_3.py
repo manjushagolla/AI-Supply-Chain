@@ -1,172 +1,133 @@
 import pandas as pd
-import logging
-import tkinter as tk
-from tkinter import messagebox
-from tkinter import ttk
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
 
-# Set up logging configuration
-logging.basicConfig(level=logging.INFO)
+def load_and_preprocess_data(file_path):
+    """
+    Load dataset from a CSV file and handle missing values.
 
-# Preprocess the data
-def preprocess_data(df):
-    # Clean column names
-    df.columns = df.columns.str.strip()
+    Parameters:
+        file_path (str): Path to the CSV file.
 
-    # Standardize and clean the 'name' column
-    if 'name' in df.columns:
-        df['name'] = df['name'].str.strip().str.lower()
+    Returns:
+        DataFrame: Preprocessed dataset.
+        List: List of categorical column names.
+    """
+    data = pd.read_csv(file_path, low_memory=False)
 
-    # Convert numeric columns to appropriate types
-    if 'Economic_Factor' in df.columns:
-        df['Economic_Factor'] = pd.to_numeric(df['Economic_Factor'], errors='coerce')
-    if 'Supplier_Performance' in df.columns:
-        df['Supplier_Performance'] = pd.to_numeric(df['Supplier_Performance'], errors='coerce')
+    # Check for mixed types and fix them in categorical columns
+    for col in data.columns:
+        if data[col].dtype == 'object':  # Categorical columns
+            # Convert mixed types to strings or handle them
+            data[col] = data[col].astype(str).fillna('missing')
 
-    # Handle missing data for key columns
-    if 'Risk_Factor' in df.columns:
-        df['Risk_Factor'] = pd.to_numeric(df['Risk_Factor'], errors='coerce').fillna(0)
-    return df
+    numeric_cols = data.select_dtypes(include=[np.number]).columns
+    categorical_cols = data.select_dtypes(exclude=[np.number]).columns
 
-# Function to load and preprocess the dataset
-def load_data(file_path: str) -> pd.DataFrame:
-    try:
-        df = pd.read_csv(file_path, low_memory=False)
-        df = preprocess_data(df)
-        logging.info(f"Data successfully loaded and preprocessed. Columns: {df.columns.tolist()}")
-        return df
-    except Exception as e:
-        logging.error(f"Error loading data: {e}")
-        return None
+    # Fill missing values
+    data[numeric_cols] = data[numeric_cols].fillna(data[numeric_cols].mean())
+    data[categorical_cols] = data[categorical_cols].fillna(data[categorical_cols].mode().iloc[0])
 
-# Generate suggestions for a product based on risk and other factors
-def generate_suggestions(row: dict) -> dict:
-    suggestions = []
-    if row.get('Is_discontinued', False):
-        suggestions.append("⚠️ Product is discontinued. Consider phasing out stock or finding alternatives.")
+    return data, categorical_cols
 
-    if row.get('Supplier_Performance') is not None:
-        supplier_score = 1 - row['Supplier_Performance'] if isinstance(row['Supplier_Performance'], float) else 0
-        if supplier_score > 0.5:
-            suggestions.append("⚠️ Low supplier performance. Consider switching suppliers or improving relationships.")
+def encode_categorical_columns(data, categorical_cols):
+    """
+    Encode categorical columns using LabelEncoder.
 
-    if row.get('Economic_Factor') and row['Economic_Factor'] < 0.5:
-        suggestions.append("⚠️ Economic factor shows risk. Adjust inventory levels and plan for delays.")
+    Parameters:
+        data (DataFrame): Dataset containing categorical columns.
+        categorical_cols (List): List of categorical column names.
 
-    transport_status = str(row.get('Transport_Status', '')).lower()
-    if not transport_status.startswith("on time"):
-        suggestions.append("⚠️ Transport status is delayed. Ensure proper logistics tracking.")
+    Returns:
+        DataFrame: Dataset with encoded categorical columns.
+    """
+    for col in categorical_cols:
+        data[col] = LabelEncoder().fit_transform(data[col])
+    return data
 
-    risk_score = row.get('Risk_Factor', 0)
-    if risk_score > 0.7:
-        suggestions.append("🔴 High risk. Consider reducing production or increasing prices to manage demand.")
-    elif risk_score > 0.4:
-        suggestions.append("🟡 Moderate risk. Monitor market conditions and supply chain regularly.")
-    else:
-        suggestions.append("🟢 Low risk. Current operations are stable.")
+def train_and_evaluate_model(data):
+    """
+    Train a Random Forest Regressor and evaluate the model.
 
-    sentiment_score = 1.0 - risk_score
-    return {
-        'risk_score': risk_score,
-        'sentiment_score': sentiment_score,
-        'suggestions': suggestions
-    }
+    Parameters:
+        data (DataFrame): Dataset with features and target.
 
-# Process data for a specific product
-def process_data(file_path: str, product_name: str):
-    df = load_data(file_path)
-    if df is None:
-        return None
+    Returns:
+        RandomForestRegressor: Trained model.
+    """
+    X = data.drop(columns=["Risk_Factor"])
+    y = data["Risk_Factor"]
 
-    if 'Risk_Factor' not in df.columns or 'name' not in df.columns:
-        logging.error("'Risk_Factor' or 'name' column is missing in the DataFrame.")
-        return None
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-    product_row = df[df['name'].str.lower() == product_name.lower()]
-    if product_row.empty:
-        logging.error(f"Product '{product_name}' not found.")
-        return None
+    # Standardize and apply PCA
+    scaler = StandardScaler()
+    pca = PCA(n_components=0.95)
 
-    product_details = product_row.iloc[0].to_dict()
-    return generate_suggestions(product_details)
+    X_train = pca.fit_transform(scaler.fit_transform(X_train))
+    X_test = pca.transform(scaler.transform(X_test))
 
-# GUI Application
-class RiskCalculatorApp:
-    def __init__(self, root, file_path):
-        self.root = root
-        self.file_path = file_path
-        self.root.title("Product Risk Calculator")
-        self.root.geometry("700x500")
-        self.root.configure(bg="#F5F5F5")
+    # Train model
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
 
-        # Title Label
-        self.label_title = tk.Label(
-            root, text="🌟 Product Risk Calculator 🌟", font=("Arial", 24, "bold"),
-            bg="#4A7C59", fg="white", padx=10, pady=10
-        )
-        self.label_title.pack(fill="x")
+    # Evaluate model
+    y_pred = model.predict(X_test)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    print(f"Model RMSE: {rmse}")
+    return model
 
-        # Input Frame
-        frame = tk.Frame(root, bg="#F5F5F5")
-        frame.pack(pady=20)
+def generate_low_stock_alerts(data, stock_column='Economic_Factor', factor=0.3):
+    """
+    Simulate stock levels and identify low stock items.
 
-        self.label_product_name = tk.Label(
-            frame, text="Enter Product Name:", font=("Arial", 14),
-            bg="#F5F5F5"
-        )
-        self.label_product_name.grid(row=0, column=0, padx=10, pady=10)
+    Parameters:
+        data (DataFrame): Dataset containing stock information.
+        stock_column (str): Column used to simulate stock levels.
+        factor (float): Threshold factor to identify low stock items.
 
-        self.entry_product_name = tk.Entry(frame, width=40, font=("Arial", 14), bg="#e0e0e0")
-        self.entry_product_name.grid(row=0, column=1, padx=10, pady=10)
+    Returns:
+        DataFrame: Filtered dataset with low stock items.
+    """
+    # Simulate stock levels
+    data['Simulated_Stock_Level'] = data[stock_column] * 100
 
-        self.button_calculate = tk.Button(
-            frame, text="Calculate Risk", font=("Arial", 14, "bold"),
-            bg="#4A7C59", fg="white", command=self.calculate_risk
-        )
-        self.button_calculate.grid(row=1, column=1, pady=20)
+    # Set threshold for low stock alerts
+    threshold = data['Simulated_Stock_Level'].mean() * factor
 
-        # Result Area
-        self.result_frame = tk.Frame(root, bg="#F5F5F5")
-        self.result_frame.pack(pady=10, fill="both", expand=True)
+    # Filter low stock items
+    low_stock_items = data[data['Simulated_Stock_Level'] < threshold]
+    return low_stock_items
 
-        self.result_label = tk.Label(
-            self.result_frame, text="Risk Score: ", font=("Arial", 14), bg="#F5F5F5",
-            anchor="w"
-        )
-        self.result_label.pack(fill="x", padx=20, pady=5)
+def save_to_csv(data, filename):
+    """
+    Save DataFrame to CSV file.
 
-        self.sentiment_label = tk.Label(
-            self.result_frame, text="Sentiment Score: ", font=("Arial", 14), bg="#F5F5F5",
-            anchor="w"
-        )
-        self.sentiment_label.pack(fill="x", padx=20, pady=5)
+    Parameters:
+        data (DataFrame): Dataset to be saved.
+        filename (str): Path to the output CSV file.
+    """
+    data.to_csv(filename, index=False)
+    print(f"Risk alerts saved to {filename}")
 
-        self.suggestions_label = tk.Label(
-            self.result_frame, text="Suggestions: ", font=("Arial", 14), bg="#F5F5F5",
-            anchor="w", justify="left"
-        )
-        self.suggestions_label.pack(fill="x", padx=20, pady=5)
+# Main execution
+file_path = '/content/drive/MyDrive/data_risk.csv'  # Update this path to your dataset file
+output_file = 'low_stock_alerts.csv'
 
-    def calculate_risk(self):
-        product_name = self.entry_product_name.get()
-        if not product_name:
-            messagebox.showerror("Error", "Please enter a product name.")
-            return
+# Load and preprocess data
+data, categorical_cols = load_and_preprocess_data(file_path)
+data = encode_categorical_columns(data, categorical_cols)
 
-        result = process_data(self.file_path, product_name)
-        if result is None:
-            messagebox.showerror(
-                "Error", "Product not found in dataset.\nEnsure the name matches exactly or check the dataset."
-            )
-            return
+# Train model (optional: if you're only interested in risk alerts, you can skip this step)
+model = train_and_evaluate_model(data)
 
-        # Update the GUI with results
-        self.result_label.config(text=f"Risk Score: {result['risk_score']:.2f}")
-        self.sentiment_label.config(text=f"Sentiment Score: {result['sentiment_score']:.2f}")
-        suggestions = "\n".join(result['suggestions'])
-        self.suggestions_label.config(text=f"Suggestions:\n{suggestions}")
+# Generate low stock alerts
+low_stock_items = generate_low_stock_alerts(data)
 
-# Run the application
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = RiskCalculatorApp(root, file_path=r"C:\Users\gvnsm\OneDrive\Desktop\manju\data_risk.csv")
-    root.mainloop()
+# Save low stock alerts to CSV
+save_to_csv(low_stock_items, output_file)
